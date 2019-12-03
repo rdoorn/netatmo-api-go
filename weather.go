@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"golang.org/x/oauth2"
@@ -18,18 +19,6 @@ const (
 	// DefaultDeviceURL is netatmo device url
 	deviceURL = baseURL + "/api/getstationsdata"
 )
-
-// Config is used to specify credential to Netatmo API
-// ClientID : Client ID from netatmo app registration at http://dev.netatmo.com/dev/listapps
-// ClientSecret : Client app secret
-// Username : Your netatmo account username
-// Password : Your netatmo account password
-type Config struct {
-	ClientID     string
-	ClientSecret string
-	Username     string
-	Password     string
-}
 
 // Client use to make request to Netatmo API
 type Client struct {
@@ -69,6 +58,7 @@ type Device struct {
 	BatteryPercent *int32 `json:"battery_percent,omitempty"`
 	WifiStatus     *int32 `json:"wifi_status,omitempty"`
 	RFStatus       *int32 `json:"rf_status,omitempty"`
+	LastSeen       *int64 `json:"last_seen,omitempty"`
 	Type           string
 	DashboardData  DashboardData `json:"dashboard_data"`
 	//DataType      []string      `json:"data_type"`
@@ -108,10 +98,28 @@ type DashboardData struct {
 }
 
 // NewClient create a handle authentication to Netamo API
-func NewClient(config Config) (*Client, error) {
+func New() (*Client, error) {
+
+	clientID, ok := os.LookupEnv("NETATMO_CLIENT_ID")
+	if !ok {
+		panic("missing environment key: NETATMO_CLIENT_ID")
+	}
+	clientSecret, ok := os.LookupEnv("NETATMO_CLIENT_SECRET")
+	if !ok {
+		panic("missing environment key: NETATMO_CLIENT_SECRET")
+	}
+	clientLogin, ok := os.LookupEnv("NETATMO_CLIENT_LOGIN")
+	if !ok {
+		panic("missing environment key: NETATMO_CLIENT_LOGIN")
+	}
+	clientPassword, ok := os.LookupEnv("NETATMO_CLIENT_PASSWORD")
+	if !ok {
+		panic("missing environment key: NETATMO_CLIENT_PASSWORD")
+	}
+
 	oauth := &oauth2.Config{
-		ClientID:     config.ClientID,
-		ClientSecret: config.ClientSecret,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
 		Scopes:       []string{"read_station"},
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  baseURL,
@@ -119,7 +127,7 @@ func NewClient(config Config) (*Client, error) {
 		},
 	}
 
-	token, err := oauth.PasswordCredentialsToken(oauth2.NoContext, config.Username, config.Password)
+	token, err := oauth.PasswordCredentialsToken(oauth2.NoContext, clientLogin, clientPassword)
 
 	return &Client{
 		oauth:      oauth,
@@ -187,6 +195,9 @@ func processHTTPResponse(resp *http.Response, err error, holder interface{}) err
 		//bytes, _ := ioutil.ReadAll(resp.Body)
 		return fmt.Errorf("Bad HTTP return code %d", resp.StatusCode)
 	}
+
+	//body, err := ioutil.ReadAll(resp.Body)
+	//log.Printf("body: %s err:%s", body, err)
 
 	// Unmarshall response into given struct
 	if err = json.NewDecoder(resp.Body).Decode(holder); err != nil {
@@ -275,6 +286,9 @@ func (d *Device) Data() (int64, map[string]interface{}) {
 		m["GustStrength"] = *d.DashboardData.GustStrength
 	}
 
+	if d.DashboardData.LastMeasure == nil {
+		return *d.LastSeen, m
+	}
 	return *d.DashboardData.LastMeasure, m
 }
 
@@ -295,5 +309,8 @@ func (d *Device) Info() (int64, map[string]interface{}) {
 		m["RFStatus"] = *d.RFStatus
 	}
 
+	if d.DashboardData.LastMeasure == nil {
+		return *d.LastSeen, m
+	}
 	return *d.DashboardData.LastMeasure, m
 }
